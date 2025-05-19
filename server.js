@@ -70,22 +70,25 @@ app.post('/submit-proof', async (req, res) => {
       <p>✍️ <a href="${signatureURL}" target="_blank">View Signature</a></p>
     `;
 
-    await axios.post(
-      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
-      {
-        event: {
-          subject_type: "Order",
-          body: commentHTML
-        }
-      },
-      {
-        headers: {
-          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    const qs = require('qs'); // ADD THIS AT THE TOP OF THE FILE
+
+await axios.post(
+  `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
+  qs.stringify({
+    event: {
+      subject_type: "Order",
+      body: commentHTML
+    }
+  }),
+  {
+    headers: {
+      'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json'
+    }
+  }
+);
+
 
     res.json({ success: true, photoURL, signatureURL });
   } catch (err) {
