@@ -1,11 +1,11 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const cors = require('cors'); // ✅ NEW
+const cors = require('cors');
 
 const app = express();
 
-// ✅ Allow your Shopify storefront to send requests
+// Allow your Shopify storefront to send requests
 app.use(cors({
   origin: 'https://www.22distro.com'
 }));
@@ -19,7 +19,12 @@ async function uploadToShopifyFiles(dataURL, filename) {
   const res = await axios.post(
     `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
     { file: { attachment: dataURL, filename } },
-    { headers: { 'X-Shopify-Access-Token': ADMIN_API_TOKEN } }
+    {
+      headers: {
+        'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+        'Accept': 'application/json'
+      }
+    }
   );
   return res.data.file.original_src;
 }
@@ -29,15 +34,14 @@ app.post('/submit-proof', async (req, res) => {
 
   try {
     const orderRes = await axios.get(
-  `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?name=${encodeURIComponent(orderNumber)}`,
-  {
-    headers: {
-      'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-      'Accept': 'application/json'
-    }
-  }
-);
-
+      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?name=${encodeURIComponent(orderNumber)}`,
+      {
+        headers: {
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json'
+        }
+      }
+    );
 
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
@@ -55,12 +59,17 @@ app.post('/submit-proof', async (req, res) => {
                  <p><img src="${signatureURL}" /></p>`
         }
       },
-      { headers: { 'X-Shopify-Access-Token': ADMIN_API_TOKEN } }
+      {
+        headers: {
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json'
+        }
+      }
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error(err.response?.data || err.message);
+    console.error("🔥 SERVER ERROR:", err.response?.data || err.message);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
