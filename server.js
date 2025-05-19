@@ -3,6 +3,7 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
+const qs = require('qs'); // ✅ Needed for form-encoded data
 
 const app = express();
 app.use(cors({ origin: 'https://www.22distro.com' }));
@@ -67,19 +68,20 @@ app.post('/submit-proof', async (req, res) => {
       <p>✍️ <a href="${signatureURL}" target="_blank">View Signature</a></p>
     `;
 
+    // ✅ Send form-encoded data using qs
     await axios.post(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
-      {
+      qs.stringify({
         event: {
           subject_type: "Order",
           body: commentHTML
         }
-      },
+      }),
       {
         headers: {
           'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
         }
       }
     );
