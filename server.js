@@ -16,12 +16,14 @@ const {
   CLOUDINARY_API_SECRET
 } = process.env;
 
+// 🔧 Cloudinary setup
 cloudinary.config({
   cloud_name: CLOUDINARY_CLOUD_NAME,
   api_key: CLOUDINARY_API_KEY,
   api_secret: CLOUDINARY_API_SECRET
 });
 
+// ⬆️ Upload base64 image to Cloudinary
 async function uploadToCloudinary(base64, filename) {
   if (!base64 || !base64.startsWith('data:image/')) {
     throw new Error("Invalid image format.");
@@ -36,6 +38,7 @@ async function uploadToCloudinary(base64, filename) {
   return result.secure_url;
 }
 
+// 🚚 Main upload route
 app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL, signatureDataURL } = req.body;
 
@@ -44,11 +47,14 @@ app.post('/submit-proof', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // 📦 Find order by order_number
+    // 🔍 Get Shopify order by order_number
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
-        headers: { 'X-Shopify-Access-Token': ADMIN_API_TOKEN }
+        headers: {
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json' // ✅ Important fix
+        }
       }
     );
 
@@ -59,20 +65,23 @@ app.post('/submit-proof', async (req, res) => {
     const photoURL = await uploadToCloudinary(photoDataURL, `${orderNumber}-photo-${timestamp}`);
     const signatureURL = await uploadToCloudinary(signatureDataURL, `${orderNumber}-signature-${timestamp}`);
 
-    // 📝 Add comment to order
+    // 📝 Add comment to Shopify order with image links
     await axios.post(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
       {
         event: {
           subject_type: "Order",
-          body: `<p><strong>Proof of Delivery for ${customerName}</strong></p>
-                 <p>📸 <a href="${photoURL}" target="_blank">View Photo</a></p>
-                 <p>✍️ <a href="${signatureURL}" target="_blank">View Signature</a></p>`
+          body: `
+            <p><strong>📦 Proof of Delivery for ${customerName}</strong></p>
+            <p><img src="${photoURL}" alt="Delivery Photo" style="max-width:300px;" /></p>
+            <p><img src="${signatureURL}" alt="Customer Signature" style="max-width:300px;" /></p>
+          `
         }
       },
       {
         headers: {
           'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json', // ✅ Fix
           'Content-Type': 'application/json'
         }
       }
