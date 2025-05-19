@@ -26,12 +26,18 @@ cloudinary.config({
 
 // Upload base64 image to Cloudinary
 async function uploadToCloudinary(base64, filename) {
-  const res = await cloudinary.uploader.upload(base64, {
+  if (!base64 || !base64.startsWith('data:image/')) {
+    throw new Error("Invalid image format.");
+  }
+
+  const result = await cloudinary.uploader.upload(base64, {
     public_id: filename,
     folder: 'delivery_proof',
     resource_type: 'image'
   });
-  return res.secure_url;
+
+  console.log(`✅ Uploaded ${filename} →`, result.secure_url);
+  return result.secure_url;
 }
 
 // Submit proof endpoint
@@ -39,26 +45,33 @@ app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL, signatureDataURL } = req.body;
 
   try {
-    // ✅ Find Shopify order by order_number
+    if (!orderNumber || !photoDataURL || !signatureDataURL || !customerName) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // ✅ Lookup Shopify order by order_number
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
         headers: {
-          'X-Shopify-Access-Token': ADMIN_API_TOKEN
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json'
         }
       }
     );
 
-    const order = orderRes.data.orders[0];
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const order = orderRes.data.orders?.[0];
+    if (!order) {
+      console.error("❌ Order not found for number:", orderNumber);
+      return res.status(404).json({ error: 'Order not found' });
+    }
 
-    // 🖼 Upload photo and signature
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
     const photoURL = await uploadToCloudinary(photoDataURL, `${orderNumber}-photo-${timestamp}`);
     const signatureURL = await uploadToCloudinary(signatureDataURL, `${orderNumber}-signature-${timestamp}`);
 
-    // 💾 Save proof link to metafield
-    await axios.put(
+    // 📝 Save photo to metafield
+    const photoMeta = await axios.put(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json`,
       {
         metafield: {
@@ -76,8 +89,8 @@ app.post('/submit-proof', async (req, res) => {
       }
     );
 
-    // Optionally save signature as a second metafield
-    await axios.put(
+    // 📝 Save signature to metafield
+    const sigMeta = await axios.put(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json`,
       {
         metafield: {
@@ -95,10 +108,12 @@ app.post('/submit-proof', async (req, res) => {
       }
     );
 
+    console.log("✅ Metafields updated for order", orderNumber);
     res.json({ success: true, photoURL, signatureURL });
   } catch (err) {
-    console.error('🔥 ERROR:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Something went wrong', details: err.message });
+    const data = err.response?.data || err.message;
+    console.error("🔥 ERROR:", data);
+    res.status(500).json({ error: 'Something went wrong', details: data });
   }
 });
 
