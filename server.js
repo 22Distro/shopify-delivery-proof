@@ -12,18 +12,23 @@ const {
   ADMIN_API_TOKEN,
   MS_CLIENT_ID,
   MS_CLIENT_SECRET,
-  MS_TENANT_ID,
-  ONEDRIVE_UPLOAD_FOLDER = 'DeliveryProof'
+  MS_TENANT_ID
 } = process.env;
+
+const ONEDRIVE_USER_EMAIL = 'ej@22distro.com'; // ✅ Your business Microsoft account
+const ONEDRIVE_FOLDER_PATH = 'Documents/DeliveryProof'; // ✅ Folder path in OneDrive
 
 // 🔐 Get Microsoft Graph token
 async function getGraphAccessToken() {
-  const res = await axios.post(`https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`, new URLSearchParams({
-    client_id: MS_CLIENT_ID,
-    client_secret: MS_CLIENT_SECRET,
-    scope: 'https://graph.microsoft.com/.default',
-    grant_type: 'client_credentials'
-  }));
+  const res = await axios.post(
+    `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`,
+    new URLSearchParams({
+      client_id: MS_CLIENT_ID,
+      client_secret: MS_CLIENT_SECRET,
+      scope: 'https://graph.microsoft.com/.default',
+      grant_type: 'client_credentials'
+    })
+  );
   return res.data.access_token;
 }
 
@@ -32,24 +37,24 @@ async function uploadToOneDrive(dataURL, filename) {
   const accessToken = await getGraphAccessToken();
   const buffer = Buffer.from(dataURL.split(',')[1], 'base64');
 
-  const res = await axios.put(
-    `https://graph.microsoft.com/v1.0/me/drive/root:/${ONEDRIVE_UPLOAD_FOLDER}/${filename}:/content`,
-    buffer,
-    {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'image/jpeg'
-      }
+  const uploadUrl = `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER_EMAIL}/drive/root:/${ONEDRIVE_FOLDER_PATH}/${filename}:/content`;
+
+  const res = await axios.put(uploadUrl, buffer, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'image/jpeg'
     }
-  );
+  });
+
   return res.data.id;
 }
 
-// 🔗 Get shareable link
+// 🔗 Create anonymous view link
 async function createShareLink(itemId) {
   const accessToken = await getGraphAccessToken();
+
   const res = await axios.post(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${itemId}/createLink`,
+    `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER_EMAIL}/drive/items/${itemId}/createLink`,
     { type: 'view', scope: 'anonymous' },
     {
       headers: {
@@ -57,14 +62,16 @@ async function createShareLink(itemId) {
       }
     }
   );
+
   return res.data.link.webUrl;
 }
 
-// 🚚 Main upload route
+// 🚚 Main endpoint
 app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL } = req.body;
 
   try {
+    // 📦 Find order by number
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
@@ -77,7 +84,7 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // 🕓 Timestamp-based filename
+    // 🧾 Upload with timestamp
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
     const filename = `${orderNumber}-delivery-${timestamp}.jpg`;
 
@@ -89,10 +96,10 @@ app.post('/submit-proof', async (req, res) => {
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json`,
       {
         metafield: {
-          namespace: "custom",
-          key: "delivery_image",
+          namespace: 'custom',
+          key: 'delivery_image',
           value: shareLink,
-          type: "url"
+          type: 'url'
         }
       },
       {
@@ -105,8 +112,11 @@ app.post('/submit-proof', async (req, res) => {
 
     res.json({ success: true, url: shareLink });
   } catch (err) {
-    console.error("🔥 ERROR:", err.response?.data || err.message);
-    res.status(500).json({ error: 'Something went wrong', details: err.message });
+    console.error('🔥 ERROR:', err.response?.data || err.message);
+    res.status(500).json({
+      error: 'Something went wrong',
+      details: err.response?.data || err.message
+    });
   }
 });
 
