@@ -44,8 +44,9 @@ app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL, signatureDataURL } = req.body;
 
   try {
+    // ✅ Use order_number instead of name
     const orderRes = await axios.get(
-      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?name=${encodeURIComponent(orderNumber)}`,
+      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
         headers: {
           'X-Shopify-Access-Token': ADMIN_API_TOKEN,
