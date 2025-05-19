@@ -17,6 +17,12 @@ const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;
 
 async function uploadToShopifyFiles(dataURL, filename) {
   try {
+    const preview = dataURL.slice(0, 50);
+    const sizeKB = (dataURL.length * 3 / 4 / 1024).toFixed(1);
+    console.log(`📦 Uploading: ${filename}`);
+    console.log(`🔍 Preview: ${preview}`);
+    console.log(`📏 Size: ${sizeKB} KB`);
+
     const res = await axios.post(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
       {
@@ -33,6 +39,7 @@ async function uploadToShopifyFiles(dataURL, filename) {
         }
       }
     );
+
     return res.data.file.original_src;
   } catch (err) {
     console.error("🔥 File upload error:", err.response?.data || err.message);
@@ -44,7 +51,6 @@ app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL, signatureDataURL } = req.body;
 
   try {
-    // ✅ Use order_number instead of name
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
