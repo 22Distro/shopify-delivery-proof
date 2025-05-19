@@ -16,17 +16,28 @@ const SHOPIFY_DOMAIN = process.env.SHOPIFY_DOMAIN;
 const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;
 
 async function uploadToShopifyFiles(dataURL, filename) {
-  const res = await axios.post(
-    `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
-    { file: { attachment: dataURL, filename } },
-    {
-      headers: {
-        'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-        'Accept': 'application/json'
+  try {
+    const res = await axios.post(
+      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
+      {
+        file: {
+          attachment: dataURL,
+          filename: filename
+        }
+      },
+      {
+        headers: {
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
       }
-    }
-  );
-  return res.data.file.original_src;
+    );
+    return res.data.file.original_src;
+  } catch (err) {
+    console.error("🔥 File upload error:", err.response?.data || err.message);
+    throw err;
+  }
 }
 
 app.post('/submit-proof', async (req, res) => {
@@ -55,14 +66,15 @@ app.post('/submit-proof', async (req, res) => {
         event: {
           subject_type: "Order",
           body: `<p><strong>Proof of Delivery for ${customerName}</strong></p>
-                 <p><img src="${photoURL}" /></p>
-                 <p><img src="${signatureURL}" /></p>`
+                 <p><img src="${photoURL}" alt="Delivery Photo" /></p>
+                 <p><img src="${signatureURL}" alt="Signature" /></p>`
         }
       },
       {
         headers: {
           'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
         }
       }
     );
@@ -70,8 +82,8 @@ app.post('/submit-proof', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("🔥 SERVER ERROR:", err.response?.data || err.message);
-    res.status(500).json({ error: 'Something went wrong' });
+    res.status(500).json({ error: 'Something went wrong', details: err.response?.data || err.message });
   }
 });
 
-app.listen(3000, () => console.log('Server running on port 3000'));
+app.listen(3000, () => console.log('✅ Server running on port 3000'));
