@@ -1,8 +1,15 @@
-
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const cors = require('cors'); // ✅ NEW
+
 const app = express();
+
+// ✅ Allow your Shopify storefront to send requests
+app.use(cors({
+  origin: 'https://www.22distro.com'
+}));
+
 app.use(bodyParser.json({ limit: '10mb' }));
 
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_DOMAIN;
