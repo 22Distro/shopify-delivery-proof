@@ -18,12 +18,14 @@ const {
   ADMIN_API_TOKEN
 } = process.env;
 
+// Configure Cloudinary
 cloudinary.config({
   cloud_name: CLOUDINARY_CLOUD_NAME,
   api_key: CLOUDINARY_API_KEY,
   api_secret: CLOUDINARY_API_SECRET
 });
 
+// Upload base64 image to Cloudinary
 async function uploadToCloudinary(base64, filename) {
   if (!base64 || !base64.startsWith('data:image/')) {
     throw new Error("Invalid image format.");
@@ -38,6 +40,7 @@ async function uploadToCloudinary(base64, filename) {
   return result.secure_url;
 }
 
+// Submit Proof Route
 app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL, signatureDataURL } = req.body;
 
@@ -46,7 +49,7 @@ app.post('/submit-proof', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Find Shopify order by order_number
+    // Get order from Shopify
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
@@ -60,35 +63,30 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders?.[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
+    // Upload both images
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
     const photoURL = await uploadToCloudinary(photoDataURL, `${orderNumber}-photo-${timestamp}`);
     const signatureURL = await uploadToCloudinary(signatureDataURL, `${orderNumber}-signature-${timestamp}`);
 
-    const commentHTML = `
-      <p><strong>📦 Proof of Delivery for ${customerName}</strong></p>
-      <p>📸 <a href="${photoURL}" target="_blank">View Photo</a></p>
-      <p>✍️ <a href="${signatureURL}" target="_blank">View Signature</a></p>
-    `;
+    // Plain text comment (no HTML)
+    const plainComment = `Proof of Delivery for ${customerName}\nPhoto: ${photoURL}\nSignature: ${signatureURL}`;
 
-    const qs = require('qs'); // ADD THIS AT THE TOP OF THE FILE
-
-await axios.post(
-  `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
-  qs.stringify({
-    event: {
-      subject_type: "Order",
-      body: commentHTML
-    }
-  }),
-  {
-    headers: {
-      'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json'
-    }
-  }
-);
-
+    await axios.post(
+      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
+      {
+        event: {
+          subject_type: "Order",
+          body: plainComment
+        }
+      },
+      {
+        headers: {
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
     res.json({ success: true, photoURL, signatureURL });
   } catch (err) {
