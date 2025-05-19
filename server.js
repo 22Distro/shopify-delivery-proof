@@ -4,70 +4,72 @@ const axios = require('axios');
 const cors = require('cors');
 
 const app = express();
-
-// Allow your Shopify storefront to send requests
-app.use(cors({
-  origin: 'https://www.22distro.com'
-}));
-
+app.use(cors({ origin: 'https://www.22distro.com' }));
 app.use(bodyParser.json({ limit: '10mb' }));
 
-const SHOPIFY_DOMAIN = process.env.SHOPIFY_DOMAIN;
-const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;
+const {
+  SHOPIFY_DOMAIN,
+  ADMIN_API_TOKEN,
+  MS_CLIENT_ID,
+  MS_CLIENT_SECRET,
+  MS_TENANT_ID,
+  ONEDRIVE_UPLOAD_FOLDER = 'DeliveryProof'
+} = process.env;
 
-// Updated to auto-detect extension based on dataURL
-async function uploadToShopifyFiles(dataURL, fallbackName) {
-  try {
-    const preview = dataURL.slice(0, 50);
-    const sizeKB = (dataURL.length * 3 / 4 / 1024).toFixed(1);
-    console.log(`📦 Uploading: ${fallbackName}`);
-    console.log(`🔍 Preview: ${preview}`);
-    console.log(`📏 Size: ${sizeKB} KB`);
-
-    const isPng = dataURL.startsWith('data:image/png');
-    const isJpeg = dataURL.startsWith('data:image/jpeg');
-    const extension = isPng ? 'png' : isJpeg ? 'jpg' : null;
-
-    if (!extension) {
-      throw new Error('Unsupported image format. Only PNG or JPEG are allowed.');
-    }
-
-    const filename = `${fallbackName}.${extension}`;
-
-    const res = await axios.post(
-      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
-      {
-        file: {
-          attachment: dataURL,
-          filename: filename
-        }
-      },
-      {
-        headers: {
-          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    return res.data.file.original_src;
-  } catch (err) {
-    console.error("🔥 File upload error:", err.response?.data || err.message);
-    throw err;
-  }
+// 🔐 Get Microsoft Graph token
+async function getGraphAccessToken() {
+  const res = await axios.post(`https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`, new URLSearchParams({
+    client_id: MS_CLIENT_ID,
+    client_secret: MS_CLIENT_SECRET,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials'
+  }));
+  return res.data.access_token;
 }
 
+// ⬆️ Upload to OneDrive
+async function uploadToOneDrive(dataURL, filename) {
+  const accessToken = await getGraphAccessToken();
+  const buffer = Buffer.from(dataURL.split(',')[1], 'base64');
+
+  const res = await axios.put(
+    `https://graph.microsoft.com/v1.0/me/drive/root:/${ONEDRIVE_UPLOAD_FOLDER}/${filename}:/content`,
+    buffer,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'image/jpeg'
+      }
+    }
+  );
+  return res.data.id;
+}
+
+// 🔗 Get shareable link
+async function createShareLink(itemId) {
+  const accessToken = await getGraphAccessToken();
+  const res = await axios.post(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${itemId}/createLink`,
+    { type: 'view', scope: 'anonymous' },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    }
+  );
+  return res.data.link.webUrl;
+}
+
+// 🚚 Main upload route
 app.post('/submit-proof', async (req, res) => {
-  const { orderNumber, customerName, photoDataURL, signatureDataURL } = req.body;
+  const { orderNumber, customerName, photoDataURL } = req.body;
 
   try {
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
         headers: {
-          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json'
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN
         }
       }
     );
@@ -75,33 +77,36 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // ✅ Let upload function choose correct file extension
-    const photoURL = await uploadToShopifyFiles(photoDataURL, `photo-${orderNumber}`);
-    const signatureURL = await uploadToShopifyFiles(signatureDataURL, `signature-${orderNumber}`);
+    // 🕓 Timestamp-based filename
+    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
+    const filename = `${orderNumber}-delivery-${timestamp}.jpg`;
 
-    await axios.post(
-      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
+    const itemId = await uploadToOneDrive(photoDataURL, filename);
+    const shareLink = await createShareLink(itemId);
+
+    // 💾 Save to metafield
+    await axios.put(
+      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json`,
       {
-        event: {
-          subject_type: "Order",
-          body: `<p><strong>Proof of Delivery for ${customerName}</strong></p>
-                 <p><img src="${photoURL}" alt="Delivery Photo" /></p>
-                 <p><img src="${signatureURL}" alt="Signature" /></p>`
+        metafield: {
+          namespace: "custom",
+          key: "delivery_image",
+          value: shareLink,
+          type: "url"
         }
       },
       {
         headers: {
           'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json',
           'Content-Type': 'application/json'
         }
       }
     );
 
-    res.json({ success: true });
+    res.json({ success: true, url: shareLink });
   } catch (err) {
-    console.error("🔥 SERVER ERROR:", err.response?.data || err.message);
-    res.status(500).json({ error: 'Something went wrong', details: err.response?.data || err.message });
+    console.error("🔥 ERROR:", err.response?.data || err.message);
+    res.status(500).json({ error: 'Something went wrong', details: err.message });
   }
 });
 
