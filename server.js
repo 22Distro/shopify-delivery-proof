@@ -53,7 +53,7 @@ app.post('/submit-proof', async (req, res) => {
       {
         headers: {
           'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json' // ✅ Important fix
+          'Accept': 'application/json'
         }
       }
     );
@@ -81,7 +81,7 @@ app.post('/submit-proof', async (req, res) => {
       {
         headers: {
           'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-          'Accept': 'application/json', // ✅ Fix
+          'Accept': 'application/json',
           'Content-Type': 'application/json'
         }
       }
@@ -89,7 +89,12 @@ app.post('/submit-proof', async (req, res) => {
 
     res.json({ success: true, photoURL, signatureURL });
   } catch (err) {
-    console.error("🔥 ERROR:", err.response?.data || err.message);
+    console.error("🔥 ERROR:", {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+      headers: err.response?.headers
+    });
     res.status(500).json({ error: 'Something went wrong', details: err.message });
   }
 });
