@@ -15,13 +15,24 @@ app.use(bodyParser.json({ limit: '10mb' }));
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_DOMAIN;
 const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;
 
-async function uploadToShopifyFiles(dataURL, filename) {
+// Updated to auto-detect extension based on dataURL
+async function uploadToShopifyFiles(dataURL, fallbackName) {
   try {
     const preview = dataURL.slice(0, 50);
     const sizeKB = (dataURL.length * 3 / 4 / 1024).toFixed(1);
-    console.log(`📦 Uploading: ${filename}`);
+    console.log(`📦 Uploading: ${fallbackName}`);
     console.log(`🔍 Preview: ${preview}`);
     console.log(`📏 Size: ${sizeKB} KB`);
+
+    const isPng = dataURL.startsWith('data:image/png');
+    const isJpeg = dataURL.startsWith('data:image/jpeg');
+    const extension = isPng ? 'png' : isJpeg ? 'jpg' : null;
+
+    if (!extension) {
+      throw new Error('Unsupported image format. Only PNG or JPEG are allowed.');
+    }
+
+    const filename = `${fallbackName}.${extension}`;
 
     const res = await axios.post(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
@@ -64,8 +75,9 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    const photoURL = await uploadToShopifyFiles(photoDataURL, `photo-${orderNumber}.jpg`);
-    const signatureURL = await uploadToShopifyFiles(signatureDataURL, `signature-${orderNumber}.png`);
+    // ✅ Let upload function choose correct file extension
+    const photoURL = await uploadToShopifyFiles(photoDataURL, `photo-${orderNumber}`);
+    const signatureURL = await uploadToShopifyFiles(signatureDataURL, `signature-${orderNumber}`);
 
     await axios.post(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/events.json`,
