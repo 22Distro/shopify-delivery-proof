@@ -119,3 +119,25 @@ app.post('/submit-proof', async (req, res) => {
 });
 
 app.listen(3000, () => console.log('✅ Server running on port 3000'));
+
+
+
+
+
+
+
+
+app.get('/drive-id', async (req, res) => {
+  try {
+    const token = await getGraphAccessToken();
+    const result = await axios.get('https://graph.microsoft.com/v1.0/me/drive', {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    res.json({ driveId: result.data.id });
+  } catch (err) {
+    console.error("❌ Could not fetch drive ID:", err.response?.data || err.message);
+    res.status(500).send("Error fetching drive ID");
+  }
+});
