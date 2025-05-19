@@ -9,71 +9,37 @@ app.use(bodyParser.json({ limit: '10mb' }));
 
 const {
   SHOPIFY_DOMAIN,
-  ADMIN_API_TOKEN,
-  MS_CLIENT_ID,
-  MS_CLIENT_SECRET,
-  MS_TENANT_ID
+  ADMIN_API_TOKEN
 } = process.env;
 
-const ONEDRIVE_USER_EMAIL = 'ej@22distro.com'; // ✅ Your Microsoft email
-const ONEDRIVE_FOLDER_PATH = 'DeliveryProof';  // ✅ Top-level folder (not in Documents)
-
-// 🔐 Get access token
-async function getGraphAccessToken() {
+// 📤 Upload base64 image to Shopify Files API
+async function uploadToShopifyFiles(dataURL, filename) {
   const res = await axios.post(
-    `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`,
-    new URLSearchParams({
-      client_id: MS_CLIENT_ID,
-      client_secret: MS_CLIENT_SECRET,
-      scope: 'https://graph.microsoft.com/.default',
-      grant_type: 'client_credentials'
-    })
-  );
-  return res.data.access_token;
-}
-
-// ⬆️ Upload image to OneDrive
-async function uploadToOneDrive(dataURL, filename) {
-  const accessToken = await getGraphAccessToken();
-  const buffer = Buffer.from(dataURL.split(',')[1], 'base64');
-
-  const uploadUrl = `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER_EMAIL}/drive/root:/${ONEDRIVE_FOLDER_PATH}/${filename}:/content`;
-
-  console.log("📤 Uploading to:", uploadUrl);
-
-  const res = await axios.put(uploadUrl, buffer, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'image/jpeg'
-    }
-  });
-
-  return res.data.id;
-}
-
-// 🔗 Generate public view link
-async function createShareLink(itemId) {
-  const accessToken = await getGraphAccessToken();
-
-  const res = await axios.post(
-    `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER_EMAIL}/drive/items/${itemId}/createLink`,
-    { type: 'view', scope: 'anonymous' },
+    `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
+    {
+      file: {
+        attachment: dataURL,
+        filename
+      }
+    },
     {
       headers: {
-        Authorization: `Bearer ${accessToken}`
+        'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       }
     }
   );
 
-  return res.data.link.webUrl;
+  return res.data.file.original_src;
 }
 
-// 🧾 Main POST handler
+// 🚚 POST route for delivery proof submission
 app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL } = req.body;
 
   try {
-    // ✅ Get Shopify order by order_number
+    // 🔍 Find order by order_number
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
@@ -86,21 +52,22 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
+    // 🕓 Create timestamped filename
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
-    const filename = `${orderNumber}-delivery-${timestamp}.jpg`;
+    const filename = `delivery-${orderNumber}-${timestamp}.jpg`;
 
-    const itemId = await uploadToOneDrive(photoDataURL, filename);
-    const shareLink = await createShareLink(itemId);
+    // ☁️ Upload to Shopify Files
+    const imageUrl = await uploadToShopifyFiles(photoDataURL, filename);
 
-    // 📝 Save share link to order metafield
+    // 💾 Save file URL to metafield
     await axios.put(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json`,
       {
         metafield: {
           namespace: 'custom',
           key: 'delivery_image',
-          value: shareLink,
-          type: 'url'
+          type: 'url',
+          value: imageUrl
         }
       },
       {
@@ -111,50 +78,11 @@ app.post('/submit-proof', async (req, res) => {
       }
     );
 
-    res.json({ success: true, url: shareLink });
+    res.json({ success: true, url: imageUrl });
   } catch (err) {
-    console.error("🔥 ERROR:", err.response?.data || err.message);
+    console.error('🔥 ERROR:', err.response?.data || err.message);
     res.status(500).json({ error: 'Something went wrong', details: err.message });
   }
 });
 
-
-// TEMP: Get OneDrive driveId
-app.get('/drive-id', async (req, res) => {
-  try {
-    const token = await getGraphAccessToken();
-    const result = await axios.get('https://graph.microsoft.com/v1.0/me/drive', {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-    res.json({ driveId: result.data.id });
-  } catch (err) {
-    console.error("❌ Could not fetch drive ID:", err.response?.data || err.message);
-    res.status(500).send("Error fetching drive ID");
-  }
-});
-
 app.listen(3000, () => console.log('✅ Server running on port 3000'));
-
-
-
-
-
-
-
-
-app.get('/drive-id', async (req, res) => {
-  try {
-    const token = await getGraphAccessToken();
-    const result = await axios.get('https://graph.microsoft.com/v1.0/me/drive', {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-    res.json({ driveId: result.data.id });
-  } catch (err) {
-    console.error("❌ Could not fetch drive ID:", err.response?.data || err.message);
-    res.status(500).send("Error fetching drive ID");
-  }
-});
