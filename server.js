@@ -40,7 +40,40 @@ async function uploadToCloudinary(base64, filename) {
   return result.secure_url;
 }
 
-// Submit Proof Route
+// 🔍 Debug route to confirm order lookup
+app.get('/test-order/:orderNumber', async (req, res) => {
+  const orderNumber = req.params.orderNumber;
+
+  try {
+    const orderRes = await axios.get(
+      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
+      {
+        headers: {
+          'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+          'Accept': 'application/json'
+        }
+      }
+    );
+
+    const order = orderRes.data.orders?.[0];
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    res.json({
+      success: true,
+      orderId: order.id,
+      orderNumber: order.order_number,
+      name: order.name,
+      customer: order.customer?.first_name + ' ' + order.customer?.last_name
+    });
+  } catch (err) {
+    console.error("❌ Order lookup error:", err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to fetch order', details: err.message });
+  }
+});
+
+// 📦 Submit Proof of Delivery
 app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL, signatureDataURL } = req.body;
 
@@ -49,7 +82,7 @@ app.post('/submit-proof', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Get order from Shopify
+    // Find Shopify order
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
@@ -63,12 +96,12 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders?.[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // Upload both images
+    // Upload images
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
     const photoURL = await uploadToCloudinary(photoDataURL, `${orderNumber}-photo-${timestamp}`);
     const signatureURL = await uploadToCloudinary(signatureDataURL, `${orderNumber}-signature-${timestamp}`);
 
-    // Plain text comment (no HTML)
+    // Plain text comment
     const plainComment = `Proof of Delivery for ${customerName}\nPhoto: ${photoURL}\nSignature: ${signatureURL}`;
 
     await axios.post(
@@ -97,6 +130,11 @@ app.post('/submit-proof', async (req, res) => {
     });
     res.status(500).json({ error: 'Something went wrong', details: err.message });
   }
+});
+
+// 🩺 Health check
+app.get('/health', (req, res) => {
+  res.send('✅ Server is up and running!');
 });
 
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
