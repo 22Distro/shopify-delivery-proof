@@ -21,7 +21,12 @@ cloudinary.config({
   api_secret: CLOUDINARY_API_SECRET
 });
 
-// Route to test upload
+// ✅ Health check route
+app.get('/health', (req, res) => {
+  res.send('✅ Server is up and running!');
+});
+
+// 🖼️ Cloudinary image upload test route
 app.post('/upload-image', async (req, res) => {
   const { base64Image } = req.body;
 
@@ -39,9 +44,15 @@ app.post('/upload-image', async (req, res) => {
       imageUrl: result.secure_url
     });
   } catch (err) {
-    console.error('Cloudinary upload error:', err.message);
+    console.error('❌ Cloudinary upload error:', err.message);
     res.status(500).json({ error: 'Failed to upload image', details: err.message });
   }
+});
+
+// Fallback root route (optional visual check)
+app.get('/', (req, res) => {
+  res.send(`<h1>✅ Image Upload API is Running</h1>
+            <p>Use <code>POST /upload-image</code> with base64 image in JSON body.</p>`);
 });
 
 app.listen(3000, () => console.log('✅ Image upload server running on port 3000'));
