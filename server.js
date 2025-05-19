@@ -4,6 +4,8 @@ const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
 const app = express();
+const PORT = process.env.PORT || 3000; // 🔁 Use Render's dynamic port
+
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 
@@ -49,10 +51,10 @@ app.post('/upload-image', async (req, res) => {
   }
 });
 
-// Fallback root route (optional visual check)
+// 🌐 Fallback homepage for visual testing
 app.get('/', (req, res) => {
   res.send(`<h1>✅ Image Upload API is Running</h1>
-            <p>Use <code>POST /upload-image</code> with base64 image in JSON body.</p>`);
+            <p>Use <code>POST /upload-image</code> with a base64 image in the request body.</p>`);
 });
 
-app.listen(3000, () => console.log('✅ Image upload server running on port 3000'));
+app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
