@@ -29,9 +29,15 @@ app.post('/submit-proof', async (req, res) => {
 
   try {
     const orderRes = await axios.get(
-      `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?name=${encodeURIComponent(orderNumber)}`,
-      { headers: { 'X-Shopify-Access-Token': ADMIN_API_TOKEN } }
-    );
+  `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?name=${encodeURIComponent(orderNumber)}`,
+  {
+    headers: {
+      'X-Shopify-Access-Token': ADMIN_API_TOKEN,
+      'Accept': 'application/json'
+    }
+  }
+);
+
 
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
