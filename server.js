@@ -15,10 +15,10 @@ const {
   MS_TENANT_ID
 } = process.env;
 
-const ONEDRIVE_USER_EMAIL = 'ej@22distro.com'; // ✅ Your business Microsoft account
-const ONEDRIVE_FOLDER_PATH = 'Documents/DeliveryProof'; // ✅ Folder path in OneDrive
+const ONEDRIVE_USER_EMAIL = 'ej@22distro.com'; // ✅ Your Microsoft email
+const ONEDRIVE_FOLDER_PATH = 'DeliveryProof';  // ✅ Top-level folder (not in Documents)
 
-// 🔐 Get Microsoft Graph token
+// 🔐 Get access token
 async function getGraphAccessToken() {
   const res = await axios.post(
     `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`,
@@ -32,12 +32,14 @@ async function getGraphAccessToken() {
   return res.data.access_token;
 }
 
-// ⬆️ Upload to OneDrive
+// ⬆️ Upload image to OneDrive
 async function uploadToOneDrive(dataURL, filename) {
   const accessToken = await getGraphAccessToken();
   const buffer = Buffer.from(dataURL.split(',')[1], 'base64');
 
   const uploadUrl = `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER_EMAIL}/drive/root:/${ONEDRIVE_FOLDER_PATH}/${filename}:/content`;
+
+  console.log("📤 Uploading to:", uploadUrl);
 
   const res = await axios.put(uploadUrl, buffer, {
     headers: {
@@ -49,7 +51,7 @@ async function uploadToOneDrive(dataURL, filename) {
   return res.data.id;
 }
 
-// 🔗 Create anonymous view link
+// 🔗 Generate public view link
 async function createShareLink(itemId) {
   const accessToken = await getGraphAccessToken();
 
@@ -66,12 +68,12 @@ async function createShareLink(itemId) {
   return res.data.link.webUrl;
 }
 
-// 🚚 Main endpoint
+// 🧾 Main POST handler
 app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL } = req.body;
 
   try {
-    // 📦 Find order by number
+    // ✅ Get Shopify order by order_number
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
@@ -84,14 +86,13 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // 🧾 Upload with timestamp
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
     const filename = `${orderNumber}-delivery-${timestamp}.jpg`;
 
     const itemId = await uploadToOneDrive(photoDataURL, filename);
     const shareLink = await createShareLink(itemId);
 
-    // 💾 Save to metafield
+    // 📝 Save share link to order metafield
     await axios.put(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json`,
       {
@@ -112,11 +113,8 @@ app.post('/submit-proof', async (req, res) => {
 
     res.json({ success: true, url: shareLink });
   } catch (err) {
-    console.error('🔥 ERROR:', err.response?.data || err.message);
-    res.status(500).json({
-      error: 'Something went wrong',
-      details: err.response?.data || err.message
-    });
+    console.error("🔥 ERROR:", err.response?.data || err.message);
+    res.status(500).json({ error: 'Something went wrong', details: err.message });
   }
 });
 
