@@ -2,44 +2,43 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const cors = require('cors');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 app.use(cors({ origin: 'https://www.22distro.com' }));
 app.use(bodyParser.json({ limit: '10mb' }));
 
 const {
+  CLOUDINARY_CLOUD_NAME,
+  CLOUDINARY_API_KEY,
+  CLOUDINARY_API_SECRET,
   SHOPIFY_DOMAIN,
   ADMIN_API_TOKEN
 } = process.env;
 
-// 📤 Upload base64 image to Shopify Files API
-async function uploadToShopifyFiles(dataURL, filename) {
-  const res = await axios.post(
-    `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/files.json`,
-    {
-      file: {
-        attachment: dataURL,
-        filename
-      }
-    },
-    {
-      headers: {
-        'X-Shopify-Access-Token': ADMIN_API_TOKEN,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    }
-  );
+// ✅ Configure Cloudinary
+cloudinary.config({
+  cloud_name: CLOUDINARY_CLOUD_NAME,
+  api_key: CLOUDINARY_API_KEY,
+  api_secret: CLOUDINARY_API_SECRET
+});
 
-  return res.data.file.original_src;
+// 📤 Upload base64 image to Cloudinary
+async function uploadToCloudinary(dataURL, filename) {
+  const res = await cloudinary.uploader.upload(dataURL, {
+    public_id: `delivery-proof/${filename}`,
+    folder: 'delivery-proof',
+    overwrite: true
+  });
+  return res.secure_url;
 }
 
-// 🚚 POST route for delivery proof submission
+// 🚚 Main upload endpoint
 app.post('/submit-proof', async (req, res) => {
   const { orderNumber, customerName, photoDataURL } = req.body;
 
   try {
-    // 🔍 Find order by order_number
+    // 🔍 Find the Shopify order
     const orderRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?order_number=${encodeURIComponent(orderNumber)}`,
       {
@@ -52,14 +51,13 @@ app.post('/submit-proof', async (req, res) => {
     const order = orderRes.data.orders[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // 🕓 Create timestamped filename
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
-    const filename = `delivery-${orderNumber}-${timestamp}.jpg`;
+    const filename = `${orderNumber}-delivery-${timestamp}`;
 
-    // ☁️ Upload to Shopify Files
-    const imageUrl = await uploadToShopifyFiles(photoDataURL, filename);
+    // ☁️ Upload image to Cloudinary
+    const imageUrl = await uploadToCloudinary(photoDataURL, filename);
 
-    // 💾 Save file URL to metafield
+    // 💾 Save Cloudinary image URL to Shopify metafield
     await axios.put(
       `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json`,
       {
